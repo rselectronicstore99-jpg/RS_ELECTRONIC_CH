@@ -73,12 +73,20 @@ def upload_to_drive(file_path):
         st.error(f"గూగుల్ డ్రైవ్ అప్‌లోడ్ ఎర్రర్: {e}")
         return None
 
-def get_gspread_sheet():
-    creds = get_google_credentials()
-    if not creds: raise Exception("గూగుల్ అథెంటికేషన్ కనెక్ట్ కాలేదు!")
-    client = gspread.authorize(creds)
-    return client.open("RS_Customers").sheet1
+# గూగుల్ షీట్ యాక్సెస్ పర్మిషన్లు
+SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive"
+]
 
+def get_gspread_sheet():
+    # బ్రౌజర్ ఓపెన్ అవ్వకుండా నేరుగా credentials.json ద్వారా లాగిన్ అవుతుంది
+    creds = Credentials.from_service_account_file('credentials.json', scopes=SCOPES)
+    client = gspread.authorize(creds)
+    
+    # ఇక్కడ మీ గూగుల్ షీట్ పేరు కరెక్ట్‌గా ఇవ్వండి
+    sheet = client.open("మీ_గూగుల్_షీట్_పేరు").sheet1 
+    return sheet
 def generate_random_key(prefix="RS", length=4):
     numbers = ''.join(random.choices(string.digits, k=length))
     return f"{prefix}-{numbers}"
