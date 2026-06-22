@@ -37,56 +37,40 @@ def load_json(filename, default_val):
 def save_json(filename, data):
     with open(filename, "w") as f: json.dump(data, f, indent=4)
 
-def get_google_credentials():
-    SCOPES = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/spreadsheets']
-    creds = None
-    if os.path.exists(TOKEN_FILE):
-        try: creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
-        except: pass
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            try: creds.refresh(Request())
-            except: creds = None
-        if not creds:
-            if not os.path.exists(CREDENTIALS_FILE):
-                st.error("Error: 'credentials.json' ఫైల్ లభించలేదు!")
-                return None
-            try:
-                flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
-                creds = flow.run_local_server(port=0)
-                with open(TOKEN_FILE, 'w') as token: token.write(creds.to_json())
-            except Exception as e:
-                st.error(f"❌ గూగుల్ అథెంటికేషన్ లోపం: {e}")
-                return None
-    return creds
+# database.py లోని పాత ఆథెంటికేషన్ కోడ్ తీసేసి ఈ క్రింది విధంగా మార్చండి
 
-def upload_to_drive(file_path):
-    try:
-        creds = get_google_credentials()
-        if not creds: return None
-        service = build('drive', 'v3', credentials=creds)
-        file_metadata = {'name': os.path.basename(file_path), 'parents': [FOLDER_ID]}
-        media = MediaFileUpload(file_path, resumable=True)
-        uploaded_file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
-        return uploaded_file.get('id')
-    except Exception as e:
-        st.error(f"గూగుల్ డ్రైవ్ అప్‌లోడ్ ఎర్రర్: {e}")
-        return None
-
-# గూగుల్ షీట్ యాక్సెస్ పర్మిషన్లు
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive"
 ]
 
+def get_service_account_creds():
+    """Streamlit Secrets నుండి కీని సురక్షితంగా రీడ్ చేస్తుంది"""
+    if "google_credentials" not in st.secrets:
+        st.error("Error: Streamlit Secrets లో 'google_credentials' కాన్ఫిగర్ చేయలేదు!")
+        return None
+    try:
+        creds_dict = json.loads(st.secrets["google_credentials"])
+        return Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+    except Exception as e:
+        st.error(f"❌ కీ రీడింగ్ లోపం: {e}")
+        return None
+
+def get_google_credentials():
+    """గూగుల్ డ్రైవ్ అప్‌లోడ్ కోసం సర్వీస్ అకౌంట్ కీ ని వాడుతుంది"""
+    return get_service_account_creds()
+
 def get_gspread_sheet():
-    # బ్రౌజర్ ఓపెన్ అవ్వకుండా నేరుగా credentials.json ద్వారా లాగిన్ అవుతుంది
-    creds = Credentials.from_service_account_file('credentials.json', scopes=SCOPES)
+    """గూగుల్ షీట్ యాక్సెస్ కోసం"""
+    creds = get_service_account_creds()
+    if not creds:
+        return None
     client = gspread.authorize(creds)
     
-    # ఇక్కడ మీ గూగుల్ షీట్ పేరు కరెక్ట్‌గా ఇవ్వండి
-    sheet = client.open("మీ_గూగుల్_షీట్_పేరు").sheet1 
+    # ⚠️ గమనిక: ఇక్కడ మీ అసలు గూగుల్ షీట్ పేరును కరెక్ట్‌గా రాయండి!
+    sheet = client.open("RS_Customers").sheet1 
     return sheet
+
 def generate_random_key(prefix="RS", length=4):
     numbers = ''.join(random.choices(string.digits, k=length))
     return f"{prefix}-{numbers}"
