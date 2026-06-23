@@ -4,9 +4,7 @@ import random
 import string
 import gspread
 from datetime import datetime
-from google.auth.transport.requests import Request
 from google.oauth2.service_account import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 import streamlit as st
@@ -17,8 +15,6 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 CONFIG_FILE = os.path.join(BASE_DIR, "shop_config.json")
 AUTOSUGGEST_FILE = os.path.join(BASE_DIR, "autosuggest_database.json")
-CREDENTIALS_FILE = os.path.join(BASE_DIR, "credentials.json")
-TOKEN_FILE = os.path.join(BASE_DIR, "token.json")
 SESSION_FILE = os.path.join(BASE_DIR, "local_user_session.json") 
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
 SIGN_PATH = os.path.join(BASE_DIR, "sign.png")
@@ -37,8 +33,7 @@ def load_json(filename, default_val):
 def save_json(filename, data):
     with open(filename, "w") as f: json.dump(data, f, indent=4)
 
-# database.py లోని పాత ఆథెంటికేషన్ కోడ్ తీసేసి ఈ క్రింది విధంగా మార్చండి
-
+# --- గూగుల్ క్లౌడ్ పర్మిషన్లు (Secrets లాజిక్) ---
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive"
@@ -60,14 +55,26 @@ def get_google_credentials():
     """గూగుల్ డ్రైవ్ అప్‌లోడ్ కోసం సర్వీస్ అకౌంట్ కీ ని వాడుతుంది"""
     return get_service_account_creds()
 
+def upload_to_drive(file_path):
+    """పిడిఎఫ్ ఫైల్స్ ను గూగుల్ డ్రైవ్ ఫోల్డర్ లోకి అప్‌లోడ్ చేస్తుంది"""
+    try:
+        creds = get_google_credentials()
+        if not creds: return None
+        service = build('drive', 'v3', credentials=creds)
+        file_metadata = {'name': os.path.basename(file_path), 'parents': [FOLDER_ID]}
+        media = MediaFileUpload(file_path, resumable=True)
+        uploaded_file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+        return uploaded_file.get('id')
+    except Exception as e:
+        st.error(f"గూగుల్ డ్రైవ్ అప్‌లోడ్ ఎర్రర్: {e}")
+        return None
+
 def get_gspread_sheet():
     """గూగుల్ షీట్ యాక్సెస్ కోసం"""
     creds = get_service_account_creds()
     if not creds:
         return None
     client = gspread.authorize(creds)
-    
-    # ⚠️ గమనిక: ఇక్కడ మీ అసలు గూగుల్ షీట్ పేరును కరెక్ట్‌గా రాయండి!
     sheet = client.open("RS_Customers").sheet1 
     return sheet
 
