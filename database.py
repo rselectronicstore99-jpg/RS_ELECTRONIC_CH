@@ -3,10 +3,9 @@ import json
 import random
 import string
 import gspread
-from datetime import datetime
-from google.auth.transport.requests import Request
+import uuid
+from datetime import datetime, timedelta
 from google.oauth2.service_account import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 import streamlit as st
@@ -14,51 +13,32 @@ import streamlit as st
 # --- కాన్ఫిగరేషన్ మరియు పాత్‌లు ---
 FOLDER_ID = "1edC-hDNWiBqgeLd_NQeixkYR07OOc5Dp" 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-CONFIG_FILE = os.path.join(BASE_DIR, "shop_config.json")
-AUTOSUGGEST_FILE = os.path.join(BASE_DIR, "autosuggest_database.json")
-CREDENTIALS_FILE = os.path.join(BASE_DIR, "credentials.json")
-TOKEN_FILE = os.path.join(BASE_DIR, "token.json")
-SESSION_FILE = os.path.join(BASE_DIR, "local_user_session.json") 
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
 SIGN_PATH = os.path.join(BASE_DIR, "sign.png")
+HISTORY_FILE = os.path.join(BASE_DIR, f"challana_history_{datetime.now().year}.json")
 
-def get_financial_year():
-    now = datetime.now()
-    return f"{now.year}_{now.year + 1}" if now.month >= 4 else f"{now.year - 1}_{now.year}"
+# --- లైసెన్స్ సెక్యూరిటీ కీ ---
+SECRET_SALT = "RS_ELECTRONIC_SUPER_SECRET_2026"
 
-HISTORY_FILE = os.path.join(BASE_DIR, f"challana_history_{get_financial_year()}.json")
+SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive"
+]
 
-def load_json(filename, default_val):
-    if os.path.exists(filename):
-        with open(filename, "r") as f: return json.load(f)
-    return default_val
-
-def save_json(filename, data):
-    with open(filename, "w") as f: json.dump(data, f, indent=4)
+def get_service_account_creds():
+    """Streamlit Secrets నుండి కీని సురక్షితంగా రీడ్ చేస్తుంది"""
+    if "google_credentials" not in st.secrets:
+        st.error("Error: Streamlit Secrets లో 'google_credentials' కాన్ఫిగర్ చేయలేదు!")
+        return None
+    try:
+        creds_dict = json.loads(st.secrets["google_credentials"])
+        return Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+    except Exception as e:
+        st.error(f"❌ కీ రీడింగ్ లోపం: {e}")
+        return None
 
 def get_google_credentials():
-    SCOPES = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/spreadsheets']
-    creds = None
-    if os.path.exists(TOKEN_FILE):
-        try: creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
-        except: pass
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            try: creds.refresh(Request())
-            except: creds = None
-        if not creds:
-            if not os.path.exists(CREDENTIALS_FILE):
-                st.error("Error: 'credentials.json' ఫైల్ లభించలేదు!")
-                return None
-            try:
-                flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
-                creds = flow.run_local_server(port=0)
-                with open(TOKEN_FILE, 'w') as token: token.write(creds.to_json())
-            except Exception as e:
-                st.error(f"❌ గూగుల్ అథెంటికేషన్ లోపం: {e}")
-                return None
-    return creds
+    return get_service_account_creds()
 
 def upload_to_drive(file_path):
     try:
@@ -73,32 +53,92 @@ def upload_to_drive(file_path):
         st.error(f"గూగుల్ డ్రైవ్ అప్‌లోడ్ ఎర్రర్: {e}")
         return None
 
-# గూగుల్ షీట్ యాక్సెస్ పర్మిషన్లు
-SCOPES = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive"
-]
-
-# database.py లోని పాత ఫంక్షన్ తీసేసి దీన్ని పెట్టండి
 def get_gspread_sheet():
-    # 1. స్ట్రీమ్‌లిట్ సీక్రెట్స్ నుండి కీని టెక్స్ట్ రూపంలో తెచ్చుకోవడం
-    if "google_credentials" not in st.secrets:
-        st.error("Error: Streamlit Cloud Secrets లో 'google_credentials' సెట్ చేయలేదు!")
-        return None
-        
-    creds_text = st.secrets["google_credentials"]
-    
-    # 2. ఆ టెక్స్ట్‌ను JSON (డిక్షనరీ) గా మార్చడం
-    creds_dict = json.loads(creds_text)
-    
-    # 3. గూగుల్ ఆథెంటికేషన్ పూర్తి చేయడం
-    creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+    creds = get_service_account_creds()
+    if not creds: return None
     client = gspread.authorize(creds)
-    
-    # ⚠️ గమనిక: "మీ_గూగుల్_షీట్_పేరు" తీసేసి మీ అసలు గూగుల్ షీట్ పేరు ఇక్కడ రాయండి
-    sheet = client.open("మీ_గూగుల్_షీట్_పేరు").sheet1 
+    # ⚠️ మీ అసలు గూగుల్ షీట్ పేరు ఇక్కడ కరెక్ట్ గా ఇవ్వండి
+    sheet = client.open("RS_Customers").sheet1 
     return sheet
 
-def generate_random_key(prefix="RS", length=4):
-    numbers = ''.join(random.choices(string.digits, k=length))
-    return f"{prefix}-{numbers}"
+def load_json(filename, default_val):
+    if os.path.exists(filename):
+        with open(filename, "r") as f: return json.load(f)
+    return default_val
+
+def save_json(filename, data):
+    with open(filename, "w") as f: json.dump(data, f, indent=4)
+
+# --- 🆕 కొత్త లైసెన్స్ సిస్టమ్ ఫంక్షన్లు ---
+
+def generate_system_id():
+    """కొత్త కస్టమర్ కోసం రాండమ్ సిస్టమ్ నంబర్ క్రియేట్ చేస్తుంది"""
+    return f"RS-{uuid.uuid4().hex[:6].upper()}-SYS"
+
+def calculate_valid_key(system_id):
+    """సిస్టమ్ నంబర్ ఆధారంగా డెవలపర్ కరెక్ట్ కీ ని లెక్కిస్తుంది"""
+    import hashlib
+    raw_string = f"{system_id}{SECRET_SALT}"
+    secure_hash = hashlib.sha256(raw_string.encode()).hexdigest().upper()
+    return f"{secure_hash[:4]}-{secure_hash[4:8]}"
+
+def get_customer_by_sys_id(system_id):
+    """గూగుల్ షీట్ నుండి సిస్టమ్ ఐడి రికార్డును తెస్తుంది"""
+    try:
+        sheet = get_gspread_sheet()
+        if not sheet: return None
+        all_records = sheet.get_all_records()
+        for row in all_records:
+            if str(row.get('System_ID')).strip() == system_id:
+                return row
+        return None
+    except:
+        return None
+
+def register_system_customer(system_id, shop_name, phone, lic_1, lic_2, addr_1, addr_2):
+    """కొత్త కస్టమర్ ప్రొఫైల్ మొత్తాన్ని గూగుల్ షీట్ లో ఒకేసారి సేవ్ చేస్తుంది"""
+    try:
+        sheet = get_gspread_sheet()
+        if not sheet: return False
+        
+        reg_date = datetime.now()
+        expiry_date = reg_date + timedelta(days=7) # 7 రోజుల ఉచిత ట్రయల్
+        
+        new_row = [
+            system_id,
+            shop_name,
+            phone,
+            reg_date.strftime("%Y-%m-%d"),
+            expiry_date.strftime("%Y-%m-%d"),
+            "Trial",       # Status
+            "",            # License_Key (ప్రస్తుతానికి ఖాళీ)
+            lic_1,
+            lic_2,
+            addr_1,
+            addr_2
+        ]
+        sheet.append_row(new_row)
+        return True
+    except Exception as e:
+        st.error(f"రిజిస్ట్రేషన్ లోపం: {e}")
+        return False
+
+def activate_system_license(system_id, license_key):
+    """లైసెన్స్ కీ వెరిఫై చేసి గూగుల్ షీట్ లో 'Lifetime' గా అప్‌డేట్ చేస్తుంది"""
+    try:
+        sheet = get_gspread_sheet()
+        if not sheet: return False
+        
+        if license_key != calculate_valid_key(system_id):
+            return False
+            
+        all_records = sheet.get_all_records()
+        for index, row in enumerate(all_records, start=2):
+            if str(row.get('System_ID')).strip() == system_id:
+                sheet.update_cell(index, 6, "Lifetime")     # 6వ కాలమ్ Status
+                sheet.update_cell(index, 7, license_key)   # 7వ కాలమ్ License_Key
+                return True
+        return False
+    except Exception as e:
+        st.error(f"యాక్టివేషన్ లోపం: {e}")
+        return False
