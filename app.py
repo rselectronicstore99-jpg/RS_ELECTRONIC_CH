@@ -7,13 +7,12 @@ from database import load_json, get_gspread_sheet, HISTORY_FILE
 from billing_dashboard import show_billing_dashboard
 
 # --- ⚙️ 1. లైసెన్స్ సెక్యూరిటీ కీ ---
-# ఈ సీక్రెట్ కీ ని ఎవరికీ చెప్పకండి. మీ ఓన్ కీజెన్ రాసేటప్పుడు కూడా ఇదే వాడాలి.
 SECRET_SALT = "RS_ELECTRONIC_SUPER_SECRET_2026"
 
 # 🏪 2. పేజీ కాన్ఫిగరేషన్
 st.set_page_config(page_title="RS Electronic Ultimate", page_icon="🏪", layout="centered")
 
-# ⚙️ 3. సెషన్ స్టేట్ వేరియబుల్స్ ప్రారంభం (Max Bill Logic)
+# ⚙️ 3. సెషన్ స్టేట్ వేరియ变量స్ ప్రారంభం (Max Bill Logic)
 if "bill_no" not in st.session_state:
     history_records = load_json(HISTORY_FILE, [])
     max_bill = 999
@@ -34,20 +33,64 @@ if "bill_items" not in st.session_state: st.session_state.bill_items = []
 if "latest_pdf_path" not in st.session_state: st.session_state.latest_pdf_path = None
 if "current_screen" not in st.session_state: st.session_state.current_screen = "📝 Create Challana"
 
-# 🤖 4. యూనిక్ సిస్టమ్ ఐడి ట్రాకింగ్ లాజిక్ (URL Params ద్వారా)
+# 👨‍💻 డెవలపర్ లాగిన్ స్టేట్
+if "admin_logged_in" not in st.session_state: st.session_state.admin_logged_in = False
+
+# 🤖 4. యూనిక్ సిస్టమ్ ఐడి ట్రాకింగ్ లాజిక్
 if "system_id" not in st.session_state:
     url_params = st.query_params
     if "id" in url_params:
         st.session_state.system_id = url_params["id"]
     else:
-        # కొత్త బ్రౌజర్/ఫోన్ అయితే సరికొత్త ఐడి జెనరేట్ చేసి బ్రౌజర్ లింక్‌లో యాడ్ చేస్తుంది
         new_id = f"RS-{uuid.uuid4().hex[:6].upper()}-SYS"
         st.session_state.system_id = new_id
         st.query_params["id"] = new_id
 
 current_sys_id = st.session_state.system_id
 
-# 🔍 5. గూగుల్ షీట్ నుండి ఈ సిస్టమ్ రికార్డును వెతకడం
+# 📥 సైడ్‌బార్‌లో డెవలపర్ సీక్రెట్ లాగిన్ ఆప్షన్
+st.sidebar.markdown("---")
+show_admin_login = st.sidebar.checkbox("👨‍💻 Developer Admin Login")
+
+# --- 🔓 5. USER ID & PASSWORD స్క్రీన్ ఓపెన్ అయ్యే లాజిక్ ---
+if show_admin_login and not st.session_state.admin_logged_in:
+    st.markdown("<h2 style='text-align: center;'>🔐 RS Developer Master Admin</h2>", unsafe_allow_html=True)
+    
+    with st.form("admin_login_form"):
+        admin_user = st.text_input("👤 Admin User ID").strip()
+        admin_pass = st.text_input("🔒 Admin Password", type="password").strip()
+        login_btn = st.form_submit_button("🚀 Verify Admin Credentials", use_container_width=True)
+        
+        if login_btn:
+            # ⚠️ మీ సీక్రెట్ యూజర్ ఐడి మరియు పాస్‌వర్డ్ ఇక్కడ మార్చుకోవచ్చు
+            if admin_user == "admin" and admin_pass == "rs2026":
+                st.session_state.admin_logged_in = True
+                st.success("👑 మాస్టర్ అడ్మిన్ లాగిన్ విజయవంతమైంది!")
+                st.rerun()
+            else:
+                st.error("❌ తప్పుడు అడ్మిన్ వివరాలు!")
+    st.stop()
+
+# ఒకవేళ అడ్మిన్ లాగిన్ అయిపోతే - డైరెక్ట్ గా మెయిన్ డ్యాష్‌బోర్డ్ ఓపెన్ అవుతుంది (లైసెన్స్ తో పనిలేదు)
+if st.session_state.admin_logged_in:
+    st.sidebar.success("👑 ADMIN MODE ACTIVE")
+    if st.sidebar.button("🚪 Logout Admin"):
+        st.session_state.admin_logged_in = False
+        st.rerun()
+        
+    admin_profile = {
+        "Username": "DEVELOPER_ADMIN",
+        "Shop_Name": "RS ELECTRONICS (DEVELOPER)",
+        "Lic_1": "GOVT-DEVELOPER-01",
+        "Lic_2": "OPTIONAL-DEV",
+        "Address_Line1": "DEVELOPER ZONE",
+        "Address_Line2": "HYDERABAD, TS"
+    }
+    show_billing_dashboard(admin_profile)
+    st.stop()
+
+
+# 🔍 6. గూగుల్ షీట్ నుండి నార్మల్ కస్టమర్ రికార్డును వెతకడం
 user_found = None
 try:
     sheet = get_gspread_sheet()
@@ -55,7 +98,6 @@ try:
     for idx in range(1, len(rows)):
         row = rows[idx]
         if len(row) > 0 and str(row[0]).strip() == current_sys_id:
-            # లిస్ట్ ఇండెక్స్ ఎర్రర్ రాకుండా సేఫ్ సైడ్ పొడిగించడం
             while len(row) < 11: row.append("")
             user_found = {
                 "System_ID": row[0], "Shop_Name": row[1], "Phone": row[2],
@@ -68,12 +110,12 @@ except Exception as e:
     st.error(f"⚠️ గూగుల్ షీట్ కనెక్ట్ అవ్వడంలో లోపం: {e}")
     st.stop()
 
-# 📝 6. కొత్త కస్టమర్ రిజిస్ట్రేషన్ స్క్రీన్ (ఒకవేళ షీట్ లో సిస్టమ్ ఐడి లేకపోతే)
+# 📝 7. కొత్త కస్టమర్ రిజిస్ట్రేషన్ స్క్రీన్
 if not user_found:
     st.markdown("<h2 style='text-align: center;'>🏪 RS Electronic Ultimate</h2>", unsafe_allow_html=True)
     st.markdown("<p style='text-align: center; color: gray;'>నూతన షాప్ ప్రొఫైల్ రిజిస్ట్రేషన్ (7 Days Free Trial)</p>", unsafe_allow_html=True)
     
-    st.info(f"🤖 మీ సిస్టమ్ నంబర్: `{current_sys_id}`\n\n(భవిష్యత్తులో యాప్ ఓపెన్ చేయడానికి ఈ నంబర్ అవసరం, దీన్ని నోట్ చేసుకోండి!)")
+    st.info(f"🤖 మీ సిస్టమ్ నంబర్: `{current_sys_id}`\n\n(భвиష్యత్తులో యాప్ ఓపెన్ చేయడానికి ఈ నంబర్ అవసరం!)")
     
     with st.form("shop_registration_form"):
         shop_name = st.text_input("మీ షాప్ పేరు (Shop Name) *").upper().strip()
@@ -99,7 +141,6 @@ if not user_found:
                         reg_date_str = datetime.now().strftime("%Y-%m-%d")
                         expiry_date_str = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
                         
-                        # మీ ఆర్డర్ ప్రకారం షీట్ లో రో యాడ్ చేయడం
                         new_row = [
                             current_sys_id, shop_name, phone, 
                             reg_date_str, expiry_date_str, "Trial", "", 
@@ -112,11 +153,10 @@ if not user_found:
                     st.error(f"❌ డేటా సేవ్ చేయడంలో లోపం జరిగింది: {e}")
     st.stop()
 
-# 📆 7. పాత కస్టమర్ - లైసెన్స్ మరియు ట్రయల్ పీరియడ్ వెరిఫికేషన్
+# 📆 8. పాత కస్టమర్ - లైసెన్స్ వెరిఫికేషన్
 status = user_found.get("Status", "Trial").strip()
 expiry_str = user_found.get("Expiry_Date", "").strip()
 
-# డెవలపర్ వెరిఫికేషన్ కోసం కరెక్ట్ కీ ని లెక్కించడం
 raw_string = f"{current_sys_id}{SECRET_SALT}"
 secure_hash = hashlib.sha256(raw_string.encode()).hexdigest().upper()
 correct_key = f"{secure_hash[:4]}-{secure_hash[4:8]}"
@@ -127,7 +167,6 @@ if status == "Trial":
         days_left = (expiry_date - date.today()).days
         
         if days_left < 0:
-            # 7 రోజుల ట్రయల్ అయిపోతే యాప్ లాక్ స్క్రీన్ చూపిస్తుంది
             st.error("⏳ మీ 7 రోజుల ఉచిత ట్రయల్ గడువు ముగిసింది!")
             st.warning(f"యాప్‌ను లైఫ్‌టైమ్ యాక్టివేట్ చేయడానికి దయచేసి RS Electronic డెవలపర్‌ను సంప్రదించండి.\n\n🤖 మీ సిస్టమ్ నంబర్: `{current_sys_id}`")
             
@@ -142,8 +181,8 @@ if status == "Trial":
                                 row_to_update = idx + 1
                                 break
                         if row_to_update != -1:
-                            sheet.update_cell(row_to_update, 6, "Lifetime")  # Column 6 = Status
-                            sheet.update_cell(row_to_update, 7, input_key)   # Column 7 = License_Key
+                            sheet.update_cell(row_to_update, 6, "Lifetime")
+                            sheet.update_cell(row_to_update, 7, input_key)
                             st.success("🎉 అభినందనలు! మీ యాప్ లైఫ్‌టైమ్ యాక్టివేట్ చేయబడింది.")
                             st.rerun()
                     except Exception as e:
@@ -158,10 +197,9 @@ if status == "Trial":
 else:
     st.sidebar.success("🌟 PREMIUM LIFETIME")
 
-# సైడ్ బార్ లో కస్టమర్ ఇన్ఫో డిస్‌ప్లే
 st.sidebar.info(f"🤖 ID: {current_sys_id}")
 
-# 🏁 8. మెయిన్ డాష్‌బోర్డ్ రన్ అవ్వడం (billing_dashboard కి పాత ఫార్మాట్ లో డేటా పంపడం)
+# 🏁 9. మెయిన్ డాష్‌బోర్డ్ రన్ అవ్వడం
 current_user = {
     "Username": user_found.get("System_ID"),
     "Shop_Name": user_found.get("Shop_Name"),
