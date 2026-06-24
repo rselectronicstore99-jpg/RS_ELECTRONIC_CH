@@ -31,11 +31,21 @@ def get_service_account_creds():
         st.error("Error: Streamlit Secrets లో 'google_credentials' కాన్ఫిగర్ చేయలేదు!")
         return None
     try:
-        creds_dict = dict(st.secrets["google_credentials"])
+        raw_creds = st.secrets["google_credentials"]
+        
+        # 💡 ఒకవేళ టెక్స్ట్ (String) రూపంలో ఉంటే JSON గా మారుస్తుంది, లేదంటే dict గా మారుస్తుంది
+        if isinstance(raw_creds, str):
+            creds_dict = json.loads(raw_creds)
+        else:
+            creds_dict = dict(raw_creds)
+            
         return Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
     except Exception as e:
         st.error(f"❌ కీ రీడింగ్ లోపం: {e}")
         return None
+
+def get_google_credentials():
+    return get_service_account_creds()
 
 def get_google_credentials():
     return get_service_account_creds()
@@ -55,16 +65,20 @@ def upload_to_drive(file_path):
 
 def get_gspread_sheet():
     try:
-        # st.secrets ని dict() గా మార్చి gspread కి ఇస్తున్నాము
         if "google_credentials" not in st.secrets:
             st.error("Error: Streamlit Secrets లో 'google_credentials' లేదు!")
             return None
             
-        creds_dict = dict(st.secrets["google_credentials"])
-        gc = gspread.service_account_from_dict(creds_dict)
+        raw_creds = st.secrets["google_credentials"]
         
-        # మీ షీట్ పేరు కరెక్ట్ గా ఉండాలి
-        sheet = gc.open("RS_Customers").sheet1 
+        # 💡 ఇక్కడ కూడా టెక్స్ట్ మరియు డిక్షనరీ రెండింటినీ సేఫ్ గా హ్యాండిల్ చేస్తున్నాము
+        if isinstance(raw_creds, str):
+            creds_dict = json.loads(raw_creds)
+        else:
+            creds_dict = dict(raw_creds)
+            
+        gc = gspread.service_account_from_dict(creds_dict)
+        sheet = gc.open("RS_Custmores").sheet1 
         return sheet
     except Exception as e:
         st.error(f"❌ గూగుల్ షీట్ ఓపెన్ చేయడంలో లోపం: {e}")
