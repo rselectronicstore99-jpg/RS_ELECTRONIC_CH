@@ -1,16 +1,11 @@
 import streamlit as st
 import os
-import uuid
-import hashlib
 import json
 from datetime import datetime, date, timedelta
-from database import load_json, get_gspread_sheet, HISTORY_FILE  # 👈 ఇక్కడి నుండి SESSION_FILE తీసేశాము
+from database import load_json, get_gspread_sheet, HISTORY_FILE, generate_system_id, register_system_customer, calculate_valid_key, SECRET_SALT
 
-# 📄 సెషన్ సేవ్ అవ్వడానికి ఫైల్ పేరును ఇక్కడే డిఫైన్ చేసాము
+# 📄 సెషన్ సేవ్ అవ్వడానికి ఫైల్ పేరు
 SESSION_FILE = "session.json" 
-
-# --- ⚙️ సీక్రెట్ కీ జనరేషన్ సాల్ట్ ---
-SECRET_SALT = "RS_ELECTRONIC_2026"
 
 # 🏪 1. పేజీ కాన్ఫిగరేషన్
 st.set_page_config(page_title="RS Electronic Ultimate", page_icon="🏪", layout="centered")
@@ -28,7 +23,7 @@ if "bill_no" not in st.session_state:
     st.session_state.bill_no = str(max_bill + 1)
 
 if "manual_date" not in st.session_state: st.session_state.manual_date = datetime.now().strftime('%d-%m-%Y')
-if "cust_name" not in st.session_state: st.session_state.cust_name = ""
+if "cust_name" not in st.session_state: st.session_name = ""
 if "cust_phone" not in st.session_state: st.session_state.cust_phone = ""
 if "cust_pro" not in st.session_state: st.session_state.cust_pro = ""
 if "cust_area" not in st.session_state: st.session_state.cust_area = ""
@@ -46,7 +41,7 @@ except Exception as e:
     st.error(f"❌ గూగుల్ షీట్ కనెక్షన్ లోపం: {e}")
     st.stop()
 
-# 🔐 3. బ్యాక్‌గ్రౌండ్ ఆటో-లాగిన్ చెకింగ్ (SESSION_FILE లేదా URL ID ద్వారా)
+# 🔐 3. బ్యాక్‌గ్రౌండ్ ఆటో-లాగిన్ మరియు రీఫ్రెష్ మేనేజ్మెంట్ (URL ID ద్వారా)
 url_params = st.query_params
 url_id = url_params.get("id", None)
 
@@ -83,6 +78,8 @@ if not st.session_state.is_logged_in:
                 st.session_state.is_logged_in = True
                 st.session_state.user_profile = user_found
                 st.session_state.user_row_idx = row_idx
+                if url_id is None:
+                    st.query_params["id"] = user_found["Username"]
     except: pass
 
 # 🚪 4. స్క్రీన్ డిస్‌ప్లే లాజిక్ (లాగిన్ అవ్వకపోతే)
@@ -91,7 +88,6 @@ if not st.session_state.is_logged_in:
     show_login_form = st.sidebar.checkbox("Admin / Existing User Login")
 
     if show_login_form:
-        # --- 🔒 అడ్మిన్ / పాత యూజర్ లాగిన్ స్క్రీన్ ---
         st.markdown("<h2 style='text-align: center;'>🔒 RS Admin & User Login</h2>", unsafe_allow_html=True)
         with st.form("login_form"):
             login_user = st.text_input("User ID / Username").strip()
@@ -139,7 +135,6 @@ if not st.session_state.is_logged_in:
                     else:
                         st.error("❌ తప్పుడు User ID లేదా Password!")
     else:
-        # --- 🏪 ఫస్ట్ స్క్రీన్: కొత్త కస్టమర్ షాప్ రిజిస్ట్రేషన్ (FIRST SCREEN) ---
         st.markdown("<h2 style='text-align: center;'>🏪 RS Electronic Ultimate</h2>", unsafe_allow_html=True)
         st.markdown("<p style='text-align: center; color: gray;'>Shop Details Setup & Registration (7 Days Free Trial)</p>", unsafe_allow_html=True)
         
@@ -168,8 +163,8 @@ if not st.session_state.is_logged_in:
                     st.error("⚠️ దయచేసి స్టార్ (*) గుర్తు ఉన్న వివరాలన్నీ తప్పకుండా నింపండి!")
                 else:
                     try:
-                        with st.spinner("🔄 ఆటోమేటిక్‌గా System ID జనరేట్ అవుతోంది..."):
-                            generated_id = f"RS-{uuid.uuid4().hex[:5].upper()}-SYS"
+                        with st.spinner("🔄 గూగుల్ షీట్‌లో ఖాతా క్రియేట్ అవుతోంది..."):
+                            generated_id = generate_system_id()
                             default_password = "123"
                             
                             if logo_file is not None:
@@ -177,32 +172,40 @@ if not st.session_state.is_logged_in:
                             if sign_file is not None:
                                 with open("sign.png", "wb") as f: f.write(sign_file.getbuffer())
                             
-                            expiry_date_str = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
+                            # 🔗 database.py లోని సురక్షిత ఫంక్షన్ ద్వారా గూగుల్ షీట్ లోకి అప్‌లోడ్
+                            success = register_system_customer(
+                                system_id=generated_id,
+                                password=default_password,
+                                phone=phone,
+                                shop_name=shop_name,
+                                lic_1=lic_1,
+                                lic_2=lic_2,
+                                addr_1=addr_1,
+                                addr_2=addr_2
+                            )
                             
-                            new_row = [
-                                generated_id, default_password, phone, "ACTIVE", "Trial", 
-                                expiry_date_str, "TRUE", shop_name, lic_1, lic_2, addr_1, addr_2
-                            ]
-                            sheet.append_row(new_row)
-                            
-                            st.session_state.user_profile = {
-                                "Username": generated_id, "Password": default_password, "Phone_No": phone,
-                                "Status": "ACTIVE", "Key_Type": "Trial", "Expiry_Date": expiry_date_str,
-                                "Profile_Setup_Done": "TRUE", "Shop_Name": shop_name, "Lic_1": lic_1,
-                                "Lic_2": lic_2, "Address_Line1": addr_1, "Address_Line2": addr_2
-                            }
-                            st.session_state.is_logged_in = True
-                            
-                            try:
-                                with open(SESSION_FILE, "w") as f:
-                                    json.dump({"username": generated_id, "password": default_password}, f)
-                            except: pass
-                            
-                            st.query_params["id"] = generated_id
-                            st.success("🎉 అకౌంట్ క్రియేట్ అయింది! యాప్ ఓపెన్ అవుతోంది...")
-                            st.rerun()
+                            if success:
+                                expiry_date_str = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
+                                st.session_state.user_profile = {
+                                    "Username": generated_id, "Password": default_password, "Phone_No": phone,
+                                    "Status": "ACTIVE", "Key_Type": "Trial", "Expiry_Date": expiry_date_str,
+                                    "Profile_Setup_Done": "TRUE", "Shop_Name": shop_name, "Lic_1": lic_1,
+                                    "Lic_2": lic_2, "Address_Line1": addr_1, "Address_Line2": addr_2
+                                }
+                                st.session_state.is_logged_in = True
+                                
+                                try:
+                                    with open(SESSION_FILE, "w") as f:
+                                        json.dump({"username": generated_id, "password": default_password}, f)
+                                except: pass
+                                
+                                st.query_params["id"] = generated_id
+                                st.success("🎉 అకౌంట్ విజయవంతంగా క్రియేట్ అయింది!")
+                                st.rerun()
+                            else:
+                                st.error("❌ గూగుల్ షీట్‌లో డేటా సేవ్ అవ్వలేదు! మీ ఇంటర్నెట్ లేదా సీక్రెట్స్ చెక్ చేయండి.")
                     except Exception as e:
-                        st.error(f"❌ డేటా సేవ్ చేయడంలో లోపం: {e}")
+                        st.error(f"❌ లోపం: {e}")
         st.stop()
 
 # 📆 5. లైసెన్స్ వెరిఫికేషన్ మరియు 7 రోజుల లాక్ లాజిక్
@@ -220,8 +223,8 @@ if current_user.get("Key_Type") == "Trial":
             input_key = st.text_input("🔑 లైసెన్స్ కీ ఇక్కడ ఎంటర్ చేయండి (Enter Activation Key):").strip().upper()
             
             if st.button("యాక్టివేట్ చేయి (Activate App)", type="primary", use_container_width=True):
-                raw_string = f"{current_user.get('Username')}_{SECRET_SALT}"
-                correct_key = hashlib.sha256(raw_string.encode()).hexdigest()[:8].upper()
+                # 🔗 database.py లోని ఫార్ములా ప్రకారం కీ వెరిఫికేషన్
+                correct_key = calculate_valid_key(current_user.get('Username'))
                 
                 if input_key == correct_key:
                     try:
@@ -243,9 +246,10 @@ else:
 if st.sidebar.button("🚪 Logout Account"):
     st.session_state.is_logged_in = False
     if os.path.exists(SESSION_FILE): os.remove(SESSION_FILE)
+    st.query_params.clear()
     st.rerun()
 
 st.sidebar.info(f"🤖 ID: {current_user.get('Username')}")
 
-# 🏁 మెయిన్ డాష్‌బోర్డ్
+# 🏁 మెయిన్ డాష్‌బోర్డ్ రన్ అవుతుంది
 show_billing_dashboard(current_user)

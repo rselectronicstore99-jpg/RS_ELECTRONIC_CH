@@ -17,7 +17,7 @@ LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
 SIGN_PATH = os.path.join(BASE_DIR, "sign.png")
 HISTORY_FILE = os.path.join(BASE_DIR, f"challana_history_{datetime.now().year}.json")
 
-# --- లైసెన్స్ సెక్యూరిటీ కీ ---
+# --- 🔐 లైసెన్స్ సెక్యూరిటీ కీ (రెండు ఫైల్స్ లోనూ ఒకేలా ఉండాలి) ---
 SECRET_SALT = "RS_ELECTRONIC_SUPER_SECRET_2026"
 
 SCOPES = [
@@ -25,27 +25,25 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive"
 ]
 
-def get_service_account_creds():
-    """Streamlit Secrets నుండి కీని సురక్షితంగా రీడ్ చేస్తుంది"""
+def get_safe_creds_dict():
+    """Secrets లో టెక్స్ట్ లేదా డిక్షనరీ ఏదున్నా సేఫ్ గా రీడ్ చేస్తుంది"""
     if "google_credentials" not in st.secrets:
         st.error("Error: Streamlit Secrets లో 'google_credentials' కాన్ఫిగర్ చేయలేదు!")
         return None
     try:
         raw_creds = st.secrets["google_credentials"]
-        
-        # 💡 ఒకవేళ టెక్స్ట్ (String) రూపంలో ఉంటే JSON గా మారుస్తుంది, లేదంటే dict గా మారుస్తుంది
         if isinstance(raw_creds, str):
-            creds_dict = json.loads(raw_creds)
+            return json.loads(raw_creds)
         else:
-            creds_dict = dict(raw_creds)
-            
-        return Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+            return dict(raw_creds)
     except Exception as e:
         st.error(f"❌ కీ రీడింగ్ లోపం: {e}")
         return None
 
-def get_google_credentials():
-    return get_service_account_creds()
+def get_service_account_creds():
+    creds_dict = get_safe_creds_dict()
+    if not creds_dict: return None
+    return Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
 
 def get_google_credentials():
     return get_service_account_creds()
@@ -64,25 +62,11 @@ def upload_to_drive(file_path):
         return None
 
 def get_gspread_sheet():
-    try:
-        if "google_credentials" not in st.secrets:
-            st.error("Error: Streamlit Secrets లో 'google_credentials' లేదు!")
-            return None
-            
-        raw_creds = st.secrets["google_credentials"]
-        
-        # 💡 ఇక్కడ కూడా టెక్స్ట్ మరియు డిక్షనరీ రెండింటినీ సేఫ్ గా హ్యాండిల్ చేస్తున్నాము
-        if isinstance(raw_creds, str):
-            creds_dict = json.loads(raw_creds)
-        else:
-            creds_dict = dict(raw_creds)
-            
-        gc = gspread.service_account_from_dict(creds_dict)
-        sheet = gc.open("RS_Customers").sheet1 
-        return sheet
-    except Exception as e:
-        st.error(f"❌ గూగుల్ షీట్ ఓపెన్ చేయడంలో లోపం: {e}")
-        return None
+    creds_dict = get_safe_creds_dict()
+    if not creds_dict: return None
+    gc = gspread.service_account_from_dict(creds_dict)
+    sheet = gc.open("RS_Customers").sheet1 
+    return sheet
 
 def load_json(filename, default_val):
     if os.path.exists(filename):
@@ -92,76 +76,44 @@ def load_json(filename, default_val):
 def save_json(filename, data):
     with open(filename, "w") as f: json.dump(data, f, indent=4)
 
-# --- 🆕 కొత్త లైసెన్స్ సిస్టమ్ ఫంక్షన్లు ---
+# --- 🆕 సిస్టమ్ లైసెన్స్ ఫంక్షన్లు ---
 
 def generate_system_id():
-    """కొత్త కస్టమర్ కోసం రాండమ్ సిస్టమ్ నంబర్ క్రియేట్ చేస్తుంది"""
-    return f"RS-{uuid.uuid4().hex[:6].upper()}-SYS"
+    """కొత్త కస్టమర్ కోసం సురక్షితమైన సిస్టమ్ నంబర్ క్రియేట్ చేస్తుంది"""
+    return f"RS-{uuid.uuid4().hex[:5].upper()}-SYS"
 
 def calculate_valid_key(system_id):
-    """సిస్టమ్ నంబర్ ఆధారంగా డెవలపర్ కరెక్ట్ కీ ని లెక్కిస్తుంది"""
+    """సిస్టమ్ నంబర్ మరియు సాల్ట్ ఆధారంగా కరెక్ట్ కీ ని లెక్కిస్తుంది"""
     import hashlib
-    raw_string = f"{system_id}{SECRET_SALT}"
+    raw_string = f"{system_id}_{SECRET_SALT}"
     secure_hash = hashlib.sha256(raw_string.encode()).hexdigest().upper()
-    return f"{secure_hash[:4]}-{secure_hash[4:8]}"
+    return secure_hash[:8] # 8 అక్షరాల కీ
 
-def get_customer_by_sys_id(system_id):
-    """గూగుల్ షీట్ నుండి సిస్టమ్ ఐడి రికార్డును తెస్తుంది"""
-    try:
-        sheet = get_gspread_sheet()
-        if not sheet: return None
-        all_records = sheet.get_all_records()
-        for row in all_records:
-            if str(row.get('System_ID')).strip() == system_id:
-                return row
-        return None
-    except:
-        return None
-
-def register_system_customer(system_id, shop_name, phone, lic_1, lic_2, addr_1, addr_2):
-    """కొత్త కస్టమర్ ప్రొఫైల్ మొత్తాన్ని గూగుల్ షీట్ లో ఒకేసారి సేవ్ చేస్తుంది"""
+def register_system_customer(system_id, password, phone, shop_name, lic_1, lic_2, addr_1, addr_2):
+    """అడ్మిన్ గూగుల్ షీట్ లో 12 కాలమ్స్ డేటాను కరెక్ట్ ఆర్డర్ లో అప్‌లోడ్ చేస్తుంది"""
     try:
         sheet = get_gspread_sheet()
         if not sheet: return False
         
-        reg_date = datetime.now()
-        expiry_date = reg_date + timedelta(days=7) # 7 రోజుల ఉచిత ట్రయల్
+        expiry_date_str = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
         
+        # app.py చదవగలిగే 12 కాలమ్స్ అమరిక
         new_row = [
-            system_id,
-            shop_name,
-            phone,
-            reg_date.strftime("%Y-%m-%d"),
-            expiry_date.strftime("%Y-%m-%d"),
-            "Trial",       # Status
-            "",            # License_Key (ప్రస్తుతానికి ఖాళీ)
-            lic_1,
-            lic_2,
-            addr_1,
-            addr_2
+            system_id,        # Col 1: Username
+            password,         # Col 2: Password
+            phone,            # Col 3: Phone_No
+            "ACTIVE",         # Col 4: Status
+            "Trial",          # Col 5: Key_Type
+            expiry_date_str,  # Col 6: Expiry_Date
+            "TRUE",           # Col 7: Profile_Setup_Done
+            shop_name,        # Col 8: Shop_Name
+            lic_1,            # Col 9: Lic_1
+            lic_2,            # Col 10: Lic_2
+            addr_1,           # Col 11: Address_Line1
+            addr_2            # Col 12: Address_Line2
         ]
         sheet.append_row(new_row)
         return True
     except Exception as e:
-        st.error(f"రిజిస్ట్రేషన్ లోపం: {e}")
-        return False
-
-def activate_system_license(system_id, license_key):
-    """లైసెన్స్ కీ వెరిఫై చేసి గూగుల్ షీట్ లో 'Lifetime' గా అప్‌డేట్ చేస్తుంది"""
-    try:
-        sheet = get_gspread_sheet()
-        if not sheet: return False
-        
-        if license_key != calculate_valid_key(system_id):
-            return False
-            
-        all_records = sheet.get_all_records()
-        for index, row in enumerate(all_records, start=2):
-            if str(row.get('System_ID')).strip() == system_id:
-                sheet.update_cell(index, 6, "Lifetime")     # 6వ కాలమ్ Status
-                sheet.update_cell(index, 7, license_key)   # 7వ కాలమ్ License_Key
-                return True
-        return False
-    except Exception as e:
-        st.error(f"యాక్టివేషన్ లోపం: {e}")
+        st.error(f"❌ గూగుల్ షీట్ రిజిస్ట్రేషన్ లోపం: {e}")
         return False
