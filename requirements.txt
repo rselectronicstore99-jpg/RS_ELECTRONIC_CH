@@ -2,3 +2,7 @@ gspread
 google-auth
 google-api-python-client
 num2words
+streamlit
+reportlab
+st-gsheets-connectiongoogle-auth
+google-auth-httplib2
