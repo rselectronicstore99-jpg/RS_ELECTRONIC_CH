@@ -2,7 +2,7 @@ gspread
 google-auth
 google-api-python-client
 num2words
-
+reportlab
 
 
 
