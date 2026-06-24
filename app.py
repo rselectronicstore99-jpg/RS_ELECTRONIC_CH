@@ -2,8 +2,12 @@ import streamlit as st
 import os
 import uuid
 import hashlib
+import json
 from datetime import datetime, date, timedelta
-from database import load_json, save_json, SESSION_FILE, get_gspread_sheet, HISTORY_FILE
+from database import load_json, get_gspread_sheet, HISTORY_FILE  # 👈 ఇక్కడి నుండి SESSION_FILE తీసేశాము
+
+# 📄 సెషన్ సేవ్ అవ్వడానికి ఫైల్ పేరును ఇక్కడే డిఫైన్ చేసాము
+SESSION_FILE = "session.json" 
 
 # --- ⚙️ సీక్రెట్ కీ జనరేషన్ సాల్ట్ ---
 SECRET_SALT = "RS_ELECTRONIC_2026"
@@ -50,7 +54,8 @@ if not st.session_state.is_logged_in:
     saved_user, saved_pass = None, None
     if os.path.exists(SESSION_FILE):
         try:
-            saved = load_json(SESSION_FILE, {})
+            with open(SESSION_FILE, "r") as f:
+                saved = json.load(f)
             saved_user, saved_pass = saved.get("username"), saved.get("password")
         except: pass
         
@@ -62,7 +67,6 @@ if not st.session_state.is_logged_in:
         for idx in range(1, len(rows)):
             row = rows[idx]
             if len(row) > 0:
-                # ఒకవేళ URL లో ID ఉన్నా లేదా SESSION_FILE లో లాగిన్ వివరాలు ఉన్నా మ్యాచ్ చేస్తుంది
                 if (url_id and str(row[0]).strip() == url_id) or (saved_user and str(row[0]).strip() == saved_user):
                     while len(row) < 12: row.append("")
                     user_found = {
@@ -83,12 +87,11 @@ if not st.session_state.is_logged_in:
 
 # 🚪 4. స్క్రీన్ డిస్‌ప్లే లాజిక్ (లాగిన్ అవ్వకపోతే)
 if not st.session_state.is_logged_in:
-    # సైడ్‌బార్‌లో అడ్మిన్ లేదా పాత కస్టమర్ల కోసం ఒక రహస్య లాగిన్ ఆప్షన్
     st.sidebar.markdown("### 🔐 Access Control")
     show_login_form = st.sidebar.checkbox("Admin / Existing User Login")
 
     if show_login_form:
-        # --- అడ్మిన్ / పాత యూజర్ లాగిన్ స్క్రీన్ ---
+        # --- 🔒 అడ్మిన్ / పాత యూజర్ లాగిన్ స్క్రీన్ ---
         st.markdown("<h2 style='text-align: center;'>🔒 RS Admin & User Login</h2>", unsafe_allow_html=True)
         with st.form("login_form"):
             login_user = st.text_input("User ID / Username").strip()
@@ -96,7 +99,7 @@ if not st.session_state.is_logged_in:
             login_submit = st.form_submit_button("🚀 Login to App", use_container_width=True)
             
             if login_submit:
-                if login_user == "admin" and login_pass == "rs2026": # అడ్మిన్ మాస్టర్ లాగిన్
+                if login_user == "admin" and login_pass == "rs2026":
                     st.session_state.is_logged_in = True
                     st.session_state.user_profile = {
                         "Username": "admin", "Key_Type": "Lifetime", "Shop_Name": "RS ELECTRONICS DEVELOPER",
@@ -105,7 +108,6 @@ if not st.session_state.is_logged_in:
                     st.success("👑 అడ్మిన్ లాగిన్ విజయవంతమైంది!")
                     st.rerun()
                 else:
-                    # గూగుల్ షీట్ లో నార్మల్ యూజర్ వెరిఫికేషన్
                     rows = sheet.get_all_values()
                     user_matched = None
                     r_idx = 1
@@ -125,14 +127,19 @@ if not st.session_state.is_logged_in:
                         st.session_state.is_logged_in = True
                         st.session_state.user_profile = user_matched
                         st.session_state.user_row_idx = r_idx
-                        save_json(SESSION_FILE, {"username": login_user, "password": login_pass})
+                        
+                        try:
+                            with open(SESSION_FILE, "w") as f:
+                                json.dump({"username": login_user, "password": login_pass}, f)
+                        except: pass
+                        
                         st.query_params["id"] = login_user
                         st.success("🎉 లాగిన్ విజయవంతమైంది!")
                         st.rerun()
                     else:
                         st.error("❌ తప్పుడు User ID లేదా Password!")
     else:
-        # --- 🌟 ఫస్ట్ స్క్రీన్: కొత్త కస్టమర్ షాప్ ప్రొఫైల్ సెటప్ (FIRST SCREEN) ---
+        # --- 🏪 ఫస్ట్ స్క్రీన్: కొత్త కస్టమర్ షాప్ రిజిస్ట్రేషన్ (FIRST SCREEN) ---
         st.markdown("<h2 style='text-align: center;'>🏪 RS Electronic Ultimate</h2>", unsafe_allow_html=True)
         st.markdown("<p style='text-align: center; color: gray;'>Shop Details Setup & Registration (7 Days Free Trial)</p>", unsafe_allow_html=True)
         
@@ -162,28 +169,22 @@ if not st.session_state.is_logged_in:
                 else:
                     try:
                         with st.spinner("🔄 ఆటోమేటిక్‌గా System ID జనరేట్ అవుతోంది..."):
-                            # 1. ఆటోమేటిక్ సిస్టమ్ ఐడి (Username) జనరేషన్
                             generated_id = f"RS-{uuid.uuid4().hex[:5].upper()}-SYS"
-                            default_password = "123" # డిఫాల్ట్ పాస్‌వర్డ్
+                            default_password = "123"
                             
-                            # 2. లోగో మరియు సంతకం సేవ్ చేయడం
                             if logo_file is not None:
                                 with open("logo.png", "wb") as f: f.write(logo_file.getbuffer())
                             if sign_file is not None:
                                 with open("sign.png", "wb") as f: f.write(sign_file.getbuffer())
                             
-                            # 3. డేట్స్ సెట్ చేయడం
-                            reg_date_str = datetime.now().strftime("%Y-%m-%d")
                             expiry_date_str = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
                             
-                            # 4. గూగుల్ షీట్ లో కొత్త రో యాడ్ చేయడం (మీ షీట్ స్ట్రక్చర్ ప్రకారం)
                             new_row = [
                                 generated_id, default_password, phone, "ACTIVE", "Trial", 
                                 expiry_date_str, "TRUE", shop_name, lic_1, lic_2, addr_1, addr_2
                             ]
                             sheet.append_row(new_row)
                             
-                            # 5. సెషన్ సేవ్ చేసి ఆటో లాగిన్ చేయడం
                             st.session_state.user_profile = {
                                 "Username": generated_id, "Password": default_password, "Phone_No": phone,
                                 "Status": "ACTIVE", "Key_Type": "Trial", "Expiry_Date": expiry_date_str,
@@ -191,14 +192,18 @@ if not st.session_state.is_logged_in:
                                 "Lic_2": lic_2, "Address_Line1": addr_1, "Address_Line2": addr_2
                             }
                             st.session_state.is_logged_in = True
-                            save_json(SESSION_FILE, {"username": generated_id, "password": default_password})
-                            st.query_params["id"] = generated_id
                             
+                            try:
+                                with open(SESSION_FILE, "w") as f:
+                                    json.dump({"username": generated_id, "password": default_password}, f)
+                            except: pass
+                            
+                            st.query_params["id"] = generated_id
                             st.success("🎉 అకౌంట్ క్రియేట్ అయింది! యాప్ ఓపెన్ అవుతోంది...")
                             st.rerun()
                     except Exception as e:
                         st.error(f"❌ డేటా సేవ్ చేయడంలో లోపం: {e}")
-    st.stop()
+        st.stop()
 
 # 📆 5. లైసెన్స్ వెరిఫికేషన్ మరియు 7 రోజుల లాక్ లాజిక్
 current_user = st.session_state.user_profile
@@ -208,12 +213,10 @@ if current_user.get("Key_Type") == "Trial":
         expiry_date = datetime.strptime(str(current_user.get("Expiry_Date")), "%Y-%m-%d").date()
         days_left = (expiry_date - date.today()).days
         
-        # ⚠️ 7 రోజుల ట్రయల్ అయిపోతే యాప్ లాక్ మెసేజ్ చూపిస్తుంది
         if days_left < 0:
             st.error("⏳ మీ 7 రోజుల ఉచిత ట్రయల్ గడువు ముగిసింది!")
             st.warning(f"యాప్‌ను లైఫ్‌టైమ్ యాక్టివేట్ చేయడానికి దయచేసి RS Electronic డెవలపర్‌ను సంప్రదించండి.\n\n🤖 **System ID (Username):** `{current_user.get('Username')}`")
             
-            # లైసెన్స్ కీ ఎంటర్ బాక్స్
             input_key = st.text_input("🔑 లైసెన్స్ కీ ఇక్కడ ఎంటర్ చేయండి (Enter Activation Key):").strip().upper()
             
             if st.button("యాక్టివేట్ చేయి (Activate App)", type="primary", use_container_width=True):
@@ -222,13 +225,12 @@ if current_user.get("Key_Type") == "Trial":
                 
                 if input_key == correct_key:
                     try:
-                        # Key_Type అనేది గూగుల్ షీట్ లో 5వ కాలమ్ (E column)
                         sheet.update_cell(st.session_state.user_row_idx, 5, "Lifetime")
                         st.session_state.user_profile["Key_Type"] = "Lifetime"
                         st.success("🎉 అభినందనలు! మీ యాప్ లైఫ్‌టైమ్ యాక్టివేట్ చేయబడింది.")
                         st.rerun()
                     except Exception as e:
-                        st.error(f"❌ అప్‌డేట్ లోపం: {e}")
+                        st.error(f"❌ అప్డేట్ లోపం: {e}")
                 else:
                     st.error("❌ తప్పుడు లైసెన్స్ కీ! దయచేసి సరైన కీ ని ఇవ్వండి.")
             st.stop()
@@ -238,7 +240,6 @@ if current_user.get("Key_Type") == "Trial":
 else:
     st.sidebar.success("🌟 PREMIUM LIFETIME")
 
-# లాగౌట్ బటన్
 if st.sidebar.button("🚪 Logout Account"):
     st.session_state.is_logged_in = False
     if os.path.exists(SESSION_FILE): os.remove(SESSION_FILE)
@@ -246,5 +247,5 @@ if st.sidebar.button("🚪 Logout Account"):
 
 st.sidebar.info(f"🤖 ID: {current_user.get('Username')}")
 
-# 🏁 6. మెయిన్ డాష్‌బోర్డ్ రన్ అవుతుంది
+# 🏁 మెయిన్ డాష్‌బోర్డ్
 show_billing_dashboard(current_user)
