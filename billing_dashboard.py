@@ -1,8 +1,19 @@
 import streamlit as st
 import os
 from datetime import datetime
-from database import load_json, save_json, AUTOSUGGEST_FILE, HISTORY_FILE
 from pdf_history import generate_challana_pdf, show_history_log_section
+import json
+from database import load_json, HISTORY_FILE
+
+# 📄 ఆటోసజెస్ట్ ఫైల్ మరియు సేవ్ ఫంక్షన్‌ను ఇక్కడే డిఫైన్ చేస్తున్నాము
+AUTOSUGGEST_FILE = "autosuggest.json"
+
+def save_json(file_path, data):
+    try:
+        with open(file_path, "w") as f:
+            json.dump(data, f, indent=4)
+    except:
+        pass
 
 def show_billing_dashboard(current_user):
     # 🔘 టాప్ స్క్రీన్ నావిగేషన్

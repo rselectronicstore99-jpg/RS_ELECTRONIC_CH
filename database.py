@@ -31,7 +31,7 @@ def get_service_account_creds():
         st.error("Error: Streamlit Secrets లో 'google_credentials' కాన్ఫిగర్ చేయలేదు!")
         return None
     try:
-        creds_dict = json.loads(st.secrets["google_credentials"])
+        creds_dict = dict(st.secrets["google_credentials"])
         return Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
     except Exception as e:
         st.error(f"❌ కీ రీడింగ్ లోపం: {e}")
@@ -54,12 +54,21 @@ def upload_to_drive(file_path):
         return None
 
 def get_gspread_sheet():
-    creds = get_service_account_creds()
-    if not creds: return None
-    client = gspread.authorize(creds)
-    # ⚠️ మీ అసలు గూగుల్ షీట్ పేరు ఇక్కడ కరెక్ట్ గా ఇవ్వండి
-    sheet = client.open("RS_Customers").sheet1 
-    return sheet
+    try:
+        # st.secrets ని dict() గా మార్చి gspread కి ఇస్తున్నాము
+        if "google_credentials" not in st.secrets:
+            st.error("Error: Streamlit Secrets లో 'google_credentials' లేదు!")
+            return None
+            
+        creds_dict = dict(st.secrets["google_credentials"])
+        gc = gspread.service_account_from_dict(creds_dict)
+        
+        # మీ షీట్ పేరు కరెక్ట్ గా ఉండాలి
+        sheet = gc.open("RS_Customers").sheet1 
+        return sheet
+    except Exception as e:
+        st.error(f"❌ గూగుల్ షీట్ ఓపెన్ చేయడంలో లోపం: {e}")
+        return None
 
 def load_json(filename, default_val):
     if os.path.exists(filename):
