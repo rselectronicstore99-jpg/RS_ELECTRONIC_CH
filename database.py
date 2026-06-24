@@ -78,7 +78,7 @@ def get_gspread_sheet():
             creds_dict = dict(raw_creds)
             
         gc = gspread.service_account_from_dict(creds_dict)
-        sheet = gc.open("RS_Custmores").sheet1 
+        sheet = gc.open("RS_Customers").sheet1 
         return sheet
     except Exception as e:
         st.error(f"❌ గూగుల్ షీట్ ఓపెన్ చేయడంలో లోపం: {e}")
